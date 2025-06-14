@@ -6,6 +6,13 @@ import path from 'path'
 import { buildConfig, PayloadRequest } from 'payload'
 import { fileURLToPath } from 'url'
 
+import { Tenants } from './collections/Tenants'
+import { multiTenantPlugin } from '@payloadcms/plugin-multi-tenant'
+import { isSuperAdmin } from './access/isSuperAdmin'
+
+import type { Config } from './payload-types'
+import { getUserTenantIDs } from './utilities/getUserTenantIDs'
+
 import { Categories } from './collections/Categories'
 import { Media } from './collections/Media'
 import { Pages } from './collections/Pages'
@@ -16,6 +23,7 @@ import { Header } from './Header/config'
 import { plugins } from './plugins'
 import { defaultLexical } from '@/fields/defaultLexical'
 import { getServerSideURL } from './utilities/getURL'
+//import { seed } from './seed'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -62,18 +70,38 @@ export default buildConfig({
   db: mongooseAdapter({
     url: process.env.DATABASE_URI || '',
   }),
-  collections: [Pages, Posts, Media, Categories, Users],
+  collections: [Tenants, Pages, Posts, Media, Categories, Users],
   cors: [getServerSideURL()].filter(Boolean),
   globals: [Header, Footer],
   plugins: [
+    multiTenantPlugin<Config>({
+      collections: {
+        pages: {},
+      },
+      tenantField: {
+        access: {
+          read: () => true,
+          update: ({ req }) => {
+            if (isSuperAdmin(req.user)) {
+              return true
+            }
+            return getUserTenantIDs(req.user).length > 0
+          },
+        },
+      },
+      tenantsArrayField: {
+        includeDefaultField: false,
+      },
+      userHasAccessToAllTenants: (user) => isSuperAdmin(user),
+    }),
     ...plugins,
-    // storage-adapter-placeholder
   ],
   secret: process.env.PAYLOAD_SECRET,
   sharp,
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },
+ 
   jobs: {
     access: {
       run: ({ req }: { req: PayloadRequest }): boolean => {
